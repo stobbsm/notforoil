@@ -1,0 +1,35 @@
+schema {
+    query: query
+    mutation: Mutation
+}
+
+scalar Date
+
+type Query {
+    """
+    Result of a previously run command
+    """
+    result(id: ID!): Result!
+}
+
+type Mutation {
+    """
+    Call a command to run.
+    """
+    call(input: CallInput!): Result!
+}
+
+type CallInput {
+    cmd: String!
+    args: [String]
+}
+
+type Result {
+    id: ID!
+    cmd: String!
+    args: [String]
+    stdout: [String]
+    stderr: [String]
+    start: Date!
+    end: Date
+}
