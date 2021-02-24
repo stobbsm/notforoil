@@ -1,5 +1,5 @@
 schema {
-    query: query
+    query: Query
     mutation: Mutation
 }
 
@@ -19,7 +19,7 @@ type Mutation {
     call(input: CallInput!): Result!
 }
 
-type CallInput {
+input CallInput {
     cmd: String!
     args: [String]
 }
