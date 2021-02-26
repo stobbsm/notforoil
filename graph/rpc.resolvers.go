@@ -5,30 +5,61 @@ package graph
 
 import (
 	"context"
-	"fmt"
-	"time"
+	"sync"
 
+	uuid "github.com/satori/go.uuid"
+	"github.com/stobbsm/notforoil"
 	"github.com/stobbsm/notforoil/graph/generated"
 	"github.com/stobbsm/notforoil/graph/model"
 )
 
+var results = make(map[uuid.UUID]*model.Result)
+
 func (r *mutationResolver) Call(ctx context.Context, input model.CallInput) (*model.Result, error) {
-	panic(fmt.Errorf("not implemented"))
+	wg := new(sync.WaitGroup)
+	c := notforoil.NewCommand(wg, input.Cmd, input.Args...)
+	results[c.ID] = &model.Result{
+		ID:     c.ID.String(),
+		Cmd:    c.Cmd,
+		Args:   c.Args,
+		Stdout: []string{},
+		Stderr: []string{},
+		Start:  c.Start,
+		End:    c.End,
+	}
+	go func(wg *sync.WaitGroup, c *notforoil.Command) {
+	loop:
+		for {
+			select {
+			case out, ok := <-c.Out:
+				if out != "" {
+					results[c.ID].Stdout = append(results[c.ID].Stdout, out)
+				}
+				if !ok {
+					break loop
+				}
+			case err := <-c.Err:
+				if err != "" {
+					results[c.ID].Stderr = append(results[c.ID].Stderr, err)
+					break loop
+				}
+			}
+		}
+		wg.Wait()
+		results[c.ID].Start = c.Start
+		results[c.ID].End = c.End
+	}(wg, c)
+	c.Do(ctx)
+
+	return results[c.ID], nil
 }
 
 func (r *queryResolver) Result(ctx context.Context, id string) (*model.Result, error) {
-	var hello, world string = "Hello", "World!"
-	var helloworld string = "Hello World!"
-	var res = &model.Result{
-		ID:     "1",
-		Cmd:    "echo",
-		Args:   []string{hello, world},
-		Stdout: []string{helloworld},
-		Stderr: []string{},
-		Start:  time.Now(),
-		End:    time.Now(),
+	uid, err := uuid.FromString(id)
+	if err != nil {
+		return nil, err
 	}
-	return res, nil
+	return results[uid], nil
 }
 
 // Mutation returns generated.MutationResolver implementation.

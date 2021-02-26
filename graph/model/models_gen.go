@@ -5,8 +5,8 @@ package model
 import "time"
 
 type CallInput struct {
-	Cmd  string    `json:"cmd"`
-	Args []*string `json:"args"`
+	Cmd  string   `json:"cmd"`
+	Args []string `json:"args"`
 }
 
 type Result struct {

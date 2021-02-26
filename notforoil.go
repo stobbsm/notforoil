@@ -2,9 +2,11 @@ package notforoil
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"log"
 	"os/exec"
+	"sync"
 	"time"
 
 	uuid "github.com/satori/go.uuid"
@@ -19,68 +21,97 @@ type Command struct {
 	Created time.Time
 	Start   time.Time
 	End     time.Time
-	Out     []string
-	Err     []string
+	Out     chan string
+	Err     chan string
 }
 
-var commands = make(map[uuid.UUID]Command)
+var commandpool = sync.Pool{
+	New: func() interface{} {
+		return &Command{}
+	},
+}
 
 // NewCommand sets up a new command object
-func NewCommand(cmd string, args ...string) *Command {
-	c := &Command{
-		ID:   uuid.NewV4(),
-		Cmd:  cmd,
-		Args: args,
-		Out:  []string{},
-		Err:  []string{},
-	}
-	c.cmd = exec.Command(cmd, args...)
+func NewCommand(wg *sync.WaitGroup, cmd string, args ...string) *Command {
+	c := commandpool.Get().(*Command)
+	c.Reset()
+	c.Cmd = cmd
+	c.Args = args
 
-	var o, e = make(chan string), make(chan string)
+	c.cmd = exec.Command(cmd, args...)
 
 	stdout, err := c.cmd.StdoutPipe()
 	if err != nil {
 		log.Println(err)
 	}
 
-	go scanOutput(stdout, o)
-	go linkChanToSlice(o, c.Out)
+	go scanOutput(wg, stdout, c.Out)
 
 	stderr, err := c.cmd.StderrPipe()
 	if err != nil {
 		log.Println(err)
 	}
-	go scanOutput(stderr, e)
-	go linkChanToSlice(e, c.Err)
+	go scanOutput(wg, stderr, c.Err)
 
 	return c
 }
 
-func scanOutput(rc io.ReadCloser, ch chan<- string) {
+func scanOutput(wg *sync.WaitGroup, rc io.ReadCloser, ch chan string) {
+	wg.Add(1)
 	log.Println("Starting channel reader")
 	scanner := bufio.NewScanner(rc)
 	for scanner.Scan() {
-		log.Print(scanner.Text())
 		ch <- scanner.Text()
 	}
-}
-
-func linkChanToSlice(ch <-chan string, sl []string) {
-	log.Println("Linking slice to reader")
-	select {
-	case <-ch:
-		sl = append(sl, <-ch)
-	}
+	log.Println("Closing channel")
+	close(ch)
+	wg.Done()
 }
 
 // Do a given command
-func (c *Command) Do() <-chan error {
+func (c *Command) Do(ctx context.Context) error {
 	var errchan = make(chan error)
 
 	c.Start = time.Now()
+	defer c.markEnd()
 
-	errchan <- c.cmd.Start()
-	errchan <- c.cmd.Wait()
+	go func() {
+		errchan <- c.cmd.Start()
+		errchan <- c.cmd.Wait()
+		close(errchan)
+	}()
+	log.Print("Waiting for command to end")
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Command ended, Exit code: %b", c.cmd.ProcessState.ExitCode())
+			return ctx.Err()
+		case err, ok := <-errchan:
+			if err != nil {
+				log.Print(err)
+			}
+			if !ok {
+				log.Printf("Command ended, Exit code: %b", c.cmd.ProcessState.ExitCode())
+				return err
+			}
+			continue
+		}
+	}
+}
+
+// Reset the command to defaults, including new channels and UUID
+func (c *Command) Reset() {
+	c.cmd = nil
+	c.ID = uuid.NewV4()
+	c.Out = make(chan string)
+	c.Err = make(chan string)
+	c.Args = []string{}
+	c.Cmd = ""
+	c.Created = time.Now()
+	c.Start = time.Time{}
+	c.End = time.Time{}
+}
+
+func (c *Command) markEnd() {
 	c.End = time.Now()
-	return errchan
 }
