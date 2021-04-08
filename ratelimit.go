@@ -11,7 +11,10 @@ func NewLimiter(requests uint32, seconds time.Duration) *Ratelimiter {
 }
 
 func (r *Ratelimiter) tick(req uint32, sec time.Duration) {
+	select {
+	case <-r.t.C:
 
+	}
 }
 
 func (r *Ratelimiter) Limit() {
