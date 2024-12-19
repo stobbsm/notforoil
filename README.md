@@ -81,3 +81,18 @@ submitted, run, logs collected and reported via the same binary.
   machine, or on remote machines using SSH.
 - Jobs will, at first, be simple CLI instructions, similar to
   shell scripts, but in a structured format
+
+#### Definition of a job
+
+- A job is a collection of tasks
+- Tasks can either depend on the output of a previous task (pipeline) or;
+- Tasks can be an ordered set of instructions
+
+#### What makes up a task
+
+- Tasks are steps in a job. Their definition should be simple
+  enough that any shell script can be interpreted into a
+  task
+- The structure of a task makes getting output from each step is possible
+- That output can be recorded (logs), used in the following task (pipelined)
+  or stored as an artifact
